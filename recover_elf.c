@@ -156,6 +156,7 @@ int main(int argc, char **argv)
 
 	Elf64_Addr dataVaddr = 0;
 	long dataSize = 0;
+    long dataOffset = 0;
 	Elf64_Addr textVaddr = 0;
 	long textSize = 0;
 	for(c = 0; c < ehdr->e_phnum; c++) {
@@ -163,6 +164,7 @@ int main(int argc, char **argv)
 			if(phdr[c].p_offset) {
 				dataVaddr = phdr[c].p_vaddr;
 				dataSize = phdr[c].p_memsz;
+                dataOffset = phdr[c].p_offset;
 				printf("data seg start from %lx, size is %lx\n", dataVaddr, dataSize);
 			} else {
 				textVaddr = phdr[c].p_vaddr;
@@ -180,6 +182,9 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 	
+    char *zero = (char*)calloc(dataOffset - textSize, 1);
+    fwrite(zero, 1, dataOffset - textSize, fd_new_file);
+    free(zero);
 
 
 	//dump data seg memory
@@ -192,6 +197,8 @@ int main(int argc, char **argv)
 		perror("PTRACE_PEEKTEXT");
 		exit(-1);
 	}
+    printf("xxx got value is %lx\n", (long*)(mem_data+488));
+    *(long*)(mem_data+488) = 0;
 	fwrite(mem_data, 1, dataSize, fd_new_file);
 	if(munmap(mem_data, dataSize) != 0) {
 		perror("munmap");
