@@ -95,6 +95,7 @@ int pid_read(int pid, void *dst, const void *src, size_t len)
 	unsigned char *d = (unsigned char *)dst;
 	unsigned long word;
 	while (sz != 0) {
+		printf("xxx sz is %d\n", sz);
 		word = ptrace(PTRACE_PEEKTEXT, pid, (long *)s, NULL);
 		if(word == -1) {
 			return -1;
@@ -102,7 +103,7 @@ int pid_read(int pid, void *dst, const void *src, size_t len)
 		*(long *)d = word;
 		s += sizeof(long);
 		d += sizeof(long);
-		sz -= sizeof(void*);
+		sz -= 1;
 	}
 	return 0;
 }
@@ -149,26 +150,50 @@ int main(int argc, char **argv)
 		perror("PTRACE_PEEKTEXT");
 		exit(-1);
 	}
-	fwrite(mem_text, 1, len, fd_new_file);
+
+	Elf64_Ehdr *ehdr = (Elf64_Ehdr*)mem_text;
+	Elf64_Phdr *phdr = (Elf64_Phdr*)&mem_text[ehdr->e_phoff];
+
+	Elf64_Addr dataVaddr = 0;
+	long dataSize = 0;
+	Elf64_Addr textVaddr = 0;
+	long textSize = 0;
+	for(c = 0; c < ehdr->e_phnum; c++) {
+		if(phdr[c].p_type == PT_LOAD) {
+			if(phdr[c].p_offset) {
+				dataVaddr = phdr[c].p_vaddr;
+				dataSize = phdr[c].p_memsz;
+				printf("data seg start from %lx, size is %lx\n", dataVaddr, dataSize);
+			} else {
+				textVaddr = phdr[c].p_vaddr;
+				textSize = phdr[c].p_memsz;
+				printf("text seg start from %lx, size is %lx\n", textVaddr, textSize);
+			}
+			if(dataSize && textSize)
+				break;
+		}
+	}
+
+	fwrite(mem_text, 1, textSize, fd_new_file);
 	if(munmap(mem_text, len) != 0) {
 		perror("munmap");
 		exit(-1);
 	}
+	
+
 
 	//dump data seg memory
-	len = get_pid_seg_size(DATA_SEG, pid);
-	start = get_pid_seg_start(DATA_SEG, pid);
-	mem_data = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	mem_data = mmap(NULL, dataSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if(mem_data == MAP_FAILED) {
 		perror("mmap data");
 		exit(-1);
 	}
-	if(pid_read(pid, mem_data, start, len) != 0) {
+	if(pid_read(pid, mem_data, dataVaddr, dataSize) != 0) {
 		perror("PTRACE_PEEKTEXT");
 		exit(-1);
 	}
-	fwrite(mem_data, 1, len, fd_new_file);
-	if(munmap(mem_data, len) != 0) {
+	fwrite(mem_data, 1, dataSize, fd_new_file);
+	if(munmap(mem_data, dataSize) != 0) {
 		perror("munmap");
 		exit(-1);
 	}
